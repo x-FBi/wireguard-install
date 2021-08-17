@@ -103,10 +103,10 @@ function installQuestions() {
 
 	# Adguard DNS by default
 	until [[ ${CLIENT_DNS_1} =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$ ]]; do
-		read -rp "First DNS resolver to use for the clients: " -e -i 94.140.14.14 CLIENT_DNS_1
+		read -rp "First DNS resolver to use for the clients: " -e -i 1.1.1.1 CLIENT_DNS_1
 	done
 	until [[ ${CLIENT_DNS_2} =~ ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$ ]]; do
-		read -rp "Second DNS resolver to use for the clients (optional): " -e -i 94.140.15.15 CLIENT_DNS_2
+		read -rp "Second DNS resolver to use for the clients (optional): " -e -i 1.0.0.1 CLIENT_DNS_2
 		if [[ ${CLIENT_DNS_2} == "" ]]; then
 			CLIENT_DNS_2="${CLIENT_DNS_1}"
 		fi
@@ -317,7 +317,56 @@ AllowedIPs = ${CLIENT_WG_IPV4}/32,${CLIENT_WG_IPV6}/128" >>"/etc/wireguard/${SER
 
 	echo "It is also available in ${HOME_DIR}/${SERVER_WG_NIC}-client-${CLIENT_NAME}.conf"
 }
+function listClients() { ### My Magic
+	NUMBER_OF_CLIENTS=$(grep -c -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf")
+	if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
+		echo ""
+		echo "You have no existing clients!"
+		exit 1
+	fi
 
+	echo ""
+	echo "Client List Below"
+	grep -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf" | cut -d ' ' -f 3 | nl -s ') '
+}
+function qrClient() { ## Print QR code
+	NUMBER_OF_CLIENTS=$(grep -c -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf")
+	if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
+		echo ""
+		echo "You have no existing clients!"
+		exit 1
+	fi
+
+	echo ""
+	echo "Select the existing client you want a QR for"
+	grep -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf" | cut -d ' ' -f 3 | nl -s ') '
+	until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
+		if [[ ${CLIENT_NUMBER} == '1' ]]; then
+			read -rp "Select one client [1]: " CLIENT_NUMBER
+		else
+			read -rp "Select one client [1-${NUMBER_OF_CLIENTS}]: " CLIENT_NUMBER
+		fi
+	done
+
+	# match the selected number to a client name
+	CLIENT_NAME=$(grep -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf" | cut -d ' ' -f 3 | sed -n "${CLIENT_NUMBER}"p)
+    if [ -e "/home/${CLIENT_NAME}" ]; then
+	# if $1 is a user name
+	    HOME_DIR="/home/${CLIENT_NAME}"
+	elif [ "${SUDO_USER}" ]; then
+		# if not, use SUDO_USER
+		if [ "${SUDO_USER}" == "root" ]; then
+			# If running sudo as root
+			HOME_DIR="/root"
+		else
+			HOME_DIR="/home/${SUDO_USER}"
+		fi
+	else
+		# if not SUDO_USER, use /root
+		HOME_DIR="/root"
+	fi
+    qrencode -t ansiutf8 -l L <"${HOME_DIR}/${SERVER_WG_NIC}-client-${CLIENT_NAME}.conf"
+}
 function revokeClient() {
 	NUMBER_OF_CLIENTS=$(grep -c -E "^### Client" "/etc/wireguard/${SERVER_WG_NIC}.conf")
 	if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
@@ -409,8 +458,10 @@ function manageMenu() {
 	echo "What do you want to do?"
 	echo "   1) Add a new user"
 	echo "   2) Revoke existing user"
-	echo "   3) Uninstall WireGuard"
-	echo "   4) Exit"
+	echo "   3) List Clients"
+    echo "   4) Generate QR"
+	echo "   5) Uninstall WireGuard"
+    echo "   6) Exit"
 	until [[ ${MENU_OPTION} =~ ^[1-4]$ ]]; do
 		read -rp "Select an option [1-4]: " MENU_OPTION
 	done
@@ -421,10 +472,16 @@ function manageMenu() {
 	2)
 		revokeClient
 		;;
-	3)
+	3) 
+        listClients
+        ;;
+    4)
+        qrClient
+        ;;
+    5)
 		uninstallWg
 		;;
-	4)
+	6)
 		exit 0
 		;;
 	esac
